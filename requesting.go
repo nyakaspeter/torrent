@@ -218,6 +218,7 @@ func (p *PeerConn) getDesiredRequestState() (desired desiredRequestState) {
 		requestIndexes: t.requestIndexes,
 	}
 	candidateLimit := p.requestCandidateLimit()
+	stealCandidates := make([]RequestIndex, 0, candidateLimit)
 	clear(requestHeap.pieceStates)
 	t.logPieceRequestOrder()
 	// Caller-provided allocation for roaring bitmap iteration.
@@ -233,9 +234,6 @@ func (p *PeerConn) getDesiredRequestState() (desired desiredRequestState) {
 			requestHeap.pieceStates[pieceIndex].Set(pieceExtra)
 			allowedFast := p.peerAllowedFast.Contains(pieceIndex)
 			t.iterUndirtiedRequestIndexesInPiece(&it, pieceIndex, func(r requestStrategy.RequestIndex) {
-				if len(requestHeap.requestIndexes) >= candidateLimit {
-					return
-				}
 				if !allowedFast {
 					// We must signal interest to request this. TODO: We could set interested if the
 					// peers pieces (minus the allowed fast set) overlap with our missing pieces if
@@ -255,14 +253,31 @@ func (p *PeerConn) getDesiredRequestState() (desired desiredRequestState) {
 					// Can't re-request while awaiting acknowledgement.
 					return
 				}
-				requestHeap.requestIndexes = append(requestHeap.requestIndexes, r)
+				requestingPeer := t.requestingPeer(r)
+				if requestingPeer == nil || requestingPeer == p {
+					if len(requestHeap.requestIndexes) < candidateLimit {
+						requestHeap.requestIndexes = append(requestHeap.requestIndexes, r)
+					}
+				} else if len(stealCandidates) < candidateLimit {
+					stealCandidates = append(stealCandidates, r)
+				}
 			})
 			return len(requestHeap.requestIndexes) < candidateLimit
 		},
 	)
+	requestHeap.requestIndexes = mergeRequestCandidates(
+		requestHeap.requestIndexes,
+		stealCandidates,
+		candidateLimit,
+	)
 	t.assertPendingRequests()
 	desired.Requests = requestHeap
 	return
+}
+
+func mergeRequestCandidates(primary, steal []RequestIndex, limit int) []RequestIndex {
+	remaining := max(0, limit-len(primary))
+	return append(primary, steal[:min(len(steal), remaining)]...)
 }
 
 func (p *PeerConn) requestCandidateLimit() int {
