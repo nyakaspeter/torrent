@@ -77,13 +77,14 @@ type Client struct {
 	logger  log.Logger
 	slogger *slog.Logger
 
-	peerID         PeerID
-	defaultStorage *storage.Client
-	onClose        []func()
-	dialers        []Dialer
-	listeners      []Listener
-	dhtServers     []DhtServer
-	ipBlockList    iplist.Ranger
+	peerID          PeerID
+	defaultStorage  *storage.Client
+	onClose         []func()
+	asyncCloseGroup sync.WaitGroup
+	dialers         []Dialer
+	listeners       []Listener
+	dhtServers      []DhtServer
+	ipBlockList     iplist.Ranger
 
 	// Set of addresses that have our client ID. This intentionally will
 	// include ourselves if we end up trying to connect to our own address
@@ -399,7 +400,13 @@ func NewClient(cfg *ClientConfig) (cl *Client, err error) {
 	cl.LocalPort()
 
 	for _, s := range sockets {
-		cl.onClose = append(cl.onClose, func() { go s.Close() })
+		cl.onClose = append(cl.onClose, func() {
+			cl.asyncCloseGroup.Add(1)
+			go func() {
+				defer cl.asyncCloseGroup.Done()
+				s.Close()
+			}()
+		})
 		if peerNetworkEnabled(parseNetworkString(s.Addr().Network()), cl.config) {
 			if cl.config.DialForPeerConns {
 				cl.dialers = append(cl.dialers, s)
@@ -553,6 +560,7 @@ func (cl *Client) Close() (errs []error) {
 	cl.unlock()
 	cl.event.Broadcast()
 	closeGroup.Wait() // defer is LIFO. We want to Wait() after cl.unlock()
+	cl.asyncCloseGroup.Wait()
 	return
 }
 
