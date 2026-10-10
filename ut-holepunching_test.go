@@ -28,6 +28,8 @@ func TestHolepunchConnect(t *testing.T) {
 	defer os.RemoveAll(greetingTempDir)
 
 	cfg := TestingConfig(t)
+	// Keep failed dials and holepunch accepts on the same address family.
+	cfg.DisableIPv6 = true
 	cfg.Seed = true
 	cfg.MaxAllocPeerRequestDataPerConn = 4
 	cfg.DataDir = greetingTempDir
@@ -51,6 +53,7 @@ func TestHolepunchConnect(t *testing.T) {
 	seederTorrent.VerifyData()
 
 	cfg = TestingConfig(t)
+	cfg.DisableIPv6 = true
 	cfg.Seed = true
 	cfg.DataDir = t.TempDir()
 	cfg.AlwaysWantConns = true
@@ -65,6 +68,7 @@ func TestHolepunchConnect(t *testing.T) {
 	defer testutil.ExportStatusWriter(leecher, "l", t)()
 
 	cfg = TestingConfig(t)
+	cfg.DisableIPv6 = true
 	cfg.Seed = false
 	cfg.DataDir = t.TempDir()
 	cfg.MaxAllocPeerRequestDataPerConn = 4
@@ -72,7 +76,7 @@ func TestHolepunchConnect(t *testing.T) {
 	cfg.NominalDialTimeout = time.Second
 	cfg.Logger = cfg.Logger.WithContextText("leecher-leecher")
 	//cfg.DisableUTP = true
-	leecherLeecher, _ := NewClient(cfg)
+	leecherLeecher, err := NewClient(cfg)
 	qt.Assert(t, qt.IsNil(err))
 	defer leecherLeecher.Close()
 	defer testutil.ExportStatusWriter(leecherLeecher, "ll", t)()

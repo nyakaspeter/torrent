@@ -208,6 +208,9 @@ func testClientTransfer(t *testing.T, ps testClientTransferParams) {
 		go leecherTorrent.VerifyDataContext(context.TODO())
 	}
 	if canComplete {
+		// The reader no longer demands pieces after reaching EOF. Cached pieces can
+		// be invalidated while reading, so explicitly request full completion.
+		leecherTorrent.DownloadAll()
 		<-leecherTorrent.Complete().On()
 	} else {
 		<-leecherTorrent.Complete().Off()
